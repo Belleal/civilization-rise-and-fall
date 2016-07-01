@@ -66,23 +66,28 @@ namespace Civilization {
 
 	#region Game Entity Objects
 
-	public class Location {
+	public class Location : IEquatable<Location> {
 		public int row { get; private set; }
 		public int col { get; private set; }
 
 		private Location() {
 		}
 
-		public Location( int row, int col, int worldWidth ) {
+		public Location( int row, int col ) {
 			this.row = row;
+			this.col = col;
+		}
 
-			if ( col < 0 ) {
-				this.col = worldWidth + col;
-			} else if ( col >= worldWidth ) {
-				this.col = col - worldWidth;
-			} else {
-				this.col = col;
-			}
+		public override bool Equals( object obj ) { 
+			return Equals( obj as Location );
+		}
+
+		public bool Equals( Location other ) { 
+			return this.row == other.row && this.col == other.col;
+		}
+
+		public override int GetHashCode() {
+			return this.row.GetHashCode() + this.col.GetHashCode();
 		}
 	};
 
@@ -149,11 +154,13 @@ namespace Civilization {
 		public Location location { get; set; }
 		public PopulationCenterArea borderArea { get; set; }
 		public Dictionary<string,Population> population { get; set; }
+		public Dictionary<Location,GameObject> visuals { get; set; }
 
 		private PopulationGroup() {
 			uid = GameManager.instance.GenerateUID();
 			borderArea = new PopulationCenterArea();
 			population = new Dictionary<string,Population>();
+			visuals = new Dictionary<Location, GameObject>();
 			establishedOn = 0;
 		}
 
@@ -328,7 +335,7 @@ namespace Civilization {
 				for ( int colIdx = 0 ; colIdx < worldWidthInTiles ; colIdx++ ) {
 					// instantiate and prepare the tile:
 					worldTiles[ rowIdx, colIdx ] = Instantiate<GameTile>( tilePrefab );
-					worldTiles[ rowIdx, colIdx ].Initialize( rowIdx, colIdx, isUpwardTile );
+					worldTiles[ rowIdx, colIdx ].Initialize( new Location( rowIdx, colIdx ), isUpwardTile );
 
 					// attach and align the tile to the game tiles container:
 					worldTiles[ rowIdx, colIdx ].transform.parent = gameTilesContainer.transform;
@@ -372,7 +379,7 @@ namespace Civilization {
 
 			#region TEMPORARY CODE: This is used to initialize and test various game objects
 
-			PopulationCenter newPopulationCenter = CreatePopulationCenter( "Babylon", new Location( 24, 1, worldWidthInTiles ) );
+			PopulationCenter newPopulationCenter = CreatePopulationCenter( "Babylon", new Location( 24, 1 ) );
 			newPopulationCenter.size = PopulationCenterSize.medium;
 			DeterminePopulationCenterAreas( ref newPopulationCenter );
 			currentGame.populationCenters.Add( newPopulationCenter.uid, newPopulationCenter );
@@ -520,8 +527,8 @@ namespace Civilization {
 
 			for ( int tileRow = 0 ; tileRow < tileMatrix.Count ; tileRow++ ) {
 				int divider = Mathf.FloorToInt( tileMatrix[ tileRow ][ 0 ] / 2 );
-				for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {
-					GameTile tile = GetTileByLocation( new Location( centerLocation.row + tileMatrix[ tileRow ][ 1 ], centerLocation.col + tileCol, worldWidthInTiles ) );
+				for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {					
+					GameTile tile = GetTileByLocation( new Location( centerLocation.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( centerLocation.col + tileCol ) ) );
 
 					if ( tileRow == 0 ) {
 						// in the top row pick the first and last tiles most outward points on the top line; from middle tiles only pick the upward tiles top points:
@@ -605,7 +612,7 @@ namespace Civilization {
 			for ( int tileRow = 0 ; tileRow < tileMatrix.Count ; tileRow++ ) {
 				int divider = Mathf.FloorToInt( tileMatrix[ tileRow ][ 0 ] / 2 );
 				for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {
-					populationCenter.borders.tiles.Add( new Location( populationCenter.centerTile.row + tileMatrix[ tileRow ][ 1 ], populationCenter.centerTile.col + tileCol, worldWidthInTiles ) );
+					populationCenter.borders.tiles.Add( new Location( populationCenter.centerTile.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationCenter.centerTile.col + tileCol ) ) );
 				}
 			}
 			populationCenter.borders.coordinates = TraceBorders( tileMatrix, populationCenter.centerTile );
@@ -620,7 +627,7 @@ namespace Civilization {
 					int divider = Mathf.FloorToInt( tileMatrix[ tileRow ][ 0 ] / 2 );
 					for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {
 						if ( ( tileRow < outskirtsRadius / 2 ) || ( tileRow >= tileMatrix.Count - outskirtsRadius / 2 ) || tileCol < -divider + outskirtsRadius || tileCol > divider - outskirtsRadius ) {
-							populationCenter.outskirts.tiles.Add( new Location( populationCenter.centerTile.row + tileMatrix[ tileRow ][ 1 ], populationCenter.centerTile.col + tileCol, worldWidthInTiles ) );
+							populationCenter.outskirts.tiles.Add( new Location( populationCenter.centerTile.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationCenter.centerTile.col + tileCol ) ) );
 						}
 					}
 				}
@@ -639,7 +646,7 @@ namespace Civilization {
 							for ( int tileRow = 0 ; tileRow < villageTileMatrix.Count ; tileRow++ ) {
 								var divider = Mathf.FloorToInt( villageTileMatrix[ tileRow ][ 0 ] / 2 );
 								for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {
-									populationGroup.borderArea.tiles.Add( new Location( populationGroup.location.row + villageTileMatrix[ tileRow ][ 1 ], populationGroup.location.col + tileCol, worldWidthInTiles ) );
+									populationGroup.borderArea.tiles.Add( new Location( populationGroup.location.row + villageTileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationGroup.location.col + tileCol ) ) );
 								}
 							}
 
@@ -686,6 +693,19 @@ namespace Civilization {
 		/* Gets the tile in the provided location. */
 		public GameTile GetTileByLocation( Location tileLocation ) {
 			return currentGame.worldTiles[ tileLocation.row, tileLocation.col ];
+		}
+
+		/* Makes sure that the world tile column provided is within the would width boundaries. Overflow will be automatically adjusted to point to a valid column instead. */
+		public int EnsureColWithinBoundary( int col ) {
+			int properCol = col;
+
+			if ( col < 0 ) {
+				properCol = worldWidthInTiles + col;
+			} else if ( col >= worldWidthInTiles ) {
+				properCol = col - worldWidthInTiles;
+			}
+
+			return properCol;
 		}
 
 		/* Used to generate tile matrix around a certain population center size and its center tile direction. */

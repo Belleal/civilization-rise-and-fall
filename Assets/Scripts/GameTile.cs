@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 
 namespace Civilization {
 
@@ -9,8 +10,7 @@ namespace Civilization {
 	public class GameTile : MonoBehaviour {
 		public bool isUpwardTile { get; private set; }
 		public Vector3[] tileSurface { get; private set; }
-		public int row { get; private set; }
-		public int col { get; private set; }
+		public Location tileLocation { get; private set; }
 		public bool isHousingAvailable { get; set; }
 
 		private int propAnchorsPerSide = 9;
@@ -19,9 +19,8 @@ namespace Civilization {
 		private GameObject[][] propAnchors;
 
 		/* Used to initialize the tile properties. */
-		public void Initialize( int row, int col, bool isUpward ) {
-			this.row = row;
-			this.col = col;
+		public void Initialize( Location location, bool isUpward ) {
+			this.tileLocation = location;
 			this.isUpwardTile = isUpward;
 
 			propAnchorCoordinates = new Vector3[propAnchorsPerSide][];
@@ -99,27 +98,50 @@ namespace Civilization {
 		/* Used to calculate the prop anchor coordinates. */
 		public void CalculatePropAnchors( float anchorOffsetX, float anchorOffsetZ, float anchorDeltaZ ) {
 			// calculate the prop anchor coordinates and initialize the placeholders:
-			for ( int idx1 = 0 ; idx1 < propAnchorsPerSide ; idx1++ ) {
-				propAnchorCoordinates[ idx1 ] = new Vector3[propAnchorsPerSide - idx1];
-				propAnchors[ idx1 ] = new GameObject[propAnchorsPerSide - idx1];
+			for ( int rowIdx = 0 ; rowIdx < propAnchorsPerSide ; rowIdx++ ) {
+				propAnchorCoordinates[ rowIdx ] = new Vector3[propAnchorsPerSide - rowIdx];
+				propAnchors[ rowIdx ] = new GameObject[propAnchorsPerSide - rowIdx];
 
-				float anchorDeltaX = anchorOffsetX / 2 * idx1;
-				for ( int idx2 = 0 ; idx2 < propAnchorsPerSide - idx1 ; idx2++ ) {
-					float offsetX = anchorOffsetX * ( idx2 + 1 ) + anchorDeltaX;
-					float offsetZ = ( ( isUpwardTile ) ? -1 : 1 ) * ( anchorDeltaZ + anchorOffsetZ * idx1 );
-					propAnchorCoordinates[ idx1 ][ idx2 ] = new Vector3( propAnchorPivot.x + offsetX, propAnchorPivot.y, propAnchorPivot.z + offsetZ );
+				float anchorDeltaX = anchorOffsetX / 2 * rowIdx;
+				for ( int colIdx = 0 ; colIdx < propAnchorsPerSide - rowIdx ; colIdx++ ) {
+					float offsetX = anchorOffsetX * ( colIdx + 1 ) + anchorDeltaX;
+					float offsetZ = ( ( isUpwardTile ) ? -1 : 1 ) * ( anchorDeltaZ + anchorOffsetZ * rowIdx );
+					propAnchorCoordinates[ rowIdx ][ colIdx ] = new Vector3( propAnchorPivot.x + offsetX, propAnchorPivot.y, propAnchorPivot.z + offsetZ );
 				}
 			}
 		}
 
 		/* Used to draw a prop attached to the specified anchor. */
-		public void DrawPropAtAnchor( int row, int col, GameObject prop ) {
-			propAnchors[ row ][ col ] = Instantiate<GameObject>( prop );
-			propAnchors[ row ][ col ].transform.parent = this.transform;
-			propAnchors[ row ][ col ].transform.rotation = this.transform.rotation;
-			propAnchors[ row ][ col ].transform.localPosition = Vector3.zero;
+		public void DrawPropAtAnchor( Location location, GameObject prop ) {
+			propAnchors[ location.row ][ location.col ] = Instantiate<GameObject>( prop );
+			propAnchors[ location.row ][ location.col ].transform.parent = this.transform;
+			propAnchors[ location.row ][ location.col ].transform.rotation = this.transform.rotation;
+			propAnchors[ location.row ][ location.col ].transform.localPosition = Vector3.zero;
 
-			propAnchors[ row ][ col ].transform.Translate( propAnchorCoordinates[ row ][ col ], Space.Self );
+			propAnchors[ location.row ][ location.col ].transform.Translate( propAnchorCoordinates[ location.row ][ location.col ], Space.Self );
+		}
+
+		/* Used to destroy a prop attached to the specified anchor. */
+		public void DestroyPropAtAnchor( Location location ) {
+			if ( propAnchors[ location.row ][ location.col ] != null ) {
+				Destroy( propAnchors[ location.row ][ location.col ] );
+				propAnchors[ location.row ][ location.col ] = null;
+			}
+		}
+
+		/* Will return a list of empty prop locations. */
+		public List<Location> GetAvailablePropLocations() {
+			List<Location> propLocations = new List<Location>();
+
+			for ( int rowIdx = 0 ; rowIdx < propAnchorsPerSide ; rowIdx++ ) {
+				for ( int colIdx = 0 ; colIdx < propAnchorsPerSide - rowIdx ; colIdx++ ) {
+					if ( propAnchors[ rowIdx ][ colIdx ] == null ) {
+						propLocations.Add( new Location( rowIdx, colIdx ) );
+					}
+				}
+			}
+
+			return propLocations;
 		}
 	}
 
