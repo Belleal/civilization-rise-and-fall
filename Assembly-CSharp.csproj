@@ -54,6 +54,7 @@
      <Compile Include="Assets\Scripts\GameTile.cs" />
      <Compile Include="Assets\Scripts\Helpers\MeshDisplay.cs" />
      <Compile Include="Assets\Scripts\Helpers\TetrahedronUV.cs" />
+     <Compile Include="Assets\Scripts\UIController.cs" />
      <None Include="Assets\Standard Assets\Effects\GlassRefraction\Shaders\GlassStainedBumpDistort.shader" />
      <None Include="Assets\Standard Assets\Effects\ImageEffects\Shaders\_BloomAndFlares\BlendOneOne.shader" />
      <None Include="Assets\Standard Assets\Effects\ImageEffects\Shaders\NoiseEffectShaderRGB.shader" />

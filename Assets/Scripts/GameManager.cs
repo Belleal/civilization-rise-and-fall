@@ -174,7 +174,7 @@ namespace Civilization {
 		public string name { get; set; }
 		public PopulationCenterSize size { get; set; }
 		public int populationMargin { get; set; }
-		public Location centerTile { get; set; }
+		public Location centerLocation { get; set; }
 		public PopulationCenterArea borders { get; set; }
 		public PopulationCenterArea outskirts { get; set; }
 		public Dictionary<string,PopulationGroup> populationGroups { get; set; }
@@ -220,6 +220,7 @@ namespace Civilization {
 		public GameTile tilePrefab;
 		public Material[] tileBiomes = new Material[20];
 		public GameObject tileBorders;
+		public Canvas populationCenterShield;
 
 		/* Would and tile measurments */
 		public int worldHeightInTiles { get; private set; }
@@ -380,7 +381,10 @@ namespace Civilization {
 			#region TEMPORARY CODE: This is used to initialize and test various game objects
 
 			PopulationCenter newPopulationCenter = CreatePopulationCenter( "Babylon", new Location( 24, 1 ) );
-			newPopulationCenter.size = PopulationCenterSize.medium;
+			//newPopulationCenter.size = PopulationCenterSize.medium;
+
+
+
 			DeterminePopulationCenterAreas( ref newPopulationCenter );
 			currentGame.populationCenters.Add( newPopulationCenter.uid, newPopulationCenter );
 
@@ -411,7 +415,15 @@ namespace Civilization {
 
 		/* Used to (re)draw a population center visuals. */
 		private void DrawPopulationCenter( PopulationCenter populationCenter ) {
-			GameTile centerTile = GetTileByLocation( populationCenter.centerTile );
+			GameTile centerTile = GetTileByLocation( populationCenter.centerLocation );
+
+			// draw the shield:
+			Canvas shield = Instantiate<Canvas>( populationCenterShield );
+			shield.transform.SetParent( centerTile.transform, false );
+			shield.transform.rotation = centerTile.transform.rotation;
+			shield.transform.localPosition = Vector3.zero;
+			shield.transform.Rotate( new Vector3( 90, 180, 0 ) );
+			shield.transform.Translate( new Vector3( 0, -tileDelta, -120 ), Space.Self );
 
 			// draw the population center borders:
 			DrawTileBorders( centerTile, populationCenter.borders );
@@ -422,6 +434,20 @@ namespace Civilization {
 			// draw the housing:
 			foreach ( KeyValuePair<string,PopulationGroup> populationGroup in populationCenter.populationGroups ) {
 				// TODO: draw districts and villages
+				GameTile groupTile = GetTileByLocation( populationGroup.Value.location );
+				List<Location> freeLocations = groupTile.GetAvailablePropLocations();
+
+				// determine the number of props based on the population in each group:
+				int propNumber = populationGroup.Value.population.Count * 3;
+				for ( int idx = populationGroup.Value.visuals.Count ; idx < propNumber ; idx++ ) {
+					int locationIdx = UnityEngine.Random.Range( 0, freeLocations.Count - 1 );
+					Location propLocation = freeLocations[ locationIdx ];
+					freeLocations.RemoveAt( locationIdx );
+
+					// TODO: this should actually pick a random housing prop instead
+					groupTile.DrawPropAtAnchor( propLocation, propPlaceholder );
+					populationGroup.Value.visuals.Add( propLocation, propPlaceholder );
+				}
 			}
 		}
 
@@ -457,13 +483,16 @@ namespace Civilization {
 			PopulationCenter populationCenter = new PopulationCenter();
 
 			populationCenter.name = name;
-			populationCenter.centerTile = center;
+			populationCenter.centerLocation = center;
 			populationCenter.size = PopulationCenterSize.tiny;
 
 			PopulationGroup centralDistrict = new PopulationGroup( currentGame.turn );
 			centralDistrict.name = name;
 			centralDistrict.location = center;
 			centralDistrict.type = PopulationGroupType.district;
+
+			Population population = new Population( currentGame.turn );
+			centralDistrict.population.Add( population.uid, population );
 			populationCenter.populationGroups.Add( centralDistrict.uid, centralDistrict );
 
 			return populationCenter;
@@ -605,17 +634,17 @@ namespace Civilization {
 		/* Used to determine and update the population center areas - borders and outskirts. */
 		private void DeterminePopulationCenterAreas( ref PopulationCenter populationCenter ) {
 			// generate a tile matrix:
-			List<int[]> tileMatrix = GenerateTileMatrix( populationCenter.size, GetTileByLocation( populationCenter.centerTile ).isUpwardTile );
+			List<int[]> tileMatrix = GenerateTileMatrix( populationCenter.size, GetTileByLocation( populationCenter.centerLocation ).isUpwardTile );
 
 			// based on the matrix determine the surrounding tiles:
 			populationCenter.borders.tiles = new List<Location>();
 			for ( int tileRow = 0 ; tileRow < tileMatrix.Count ; tileRow++ ) {
 				int divider = Mathf.FloorToInt( tileMatrix[ tileRow ][ 0 ] / 2 );
 				for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {
-					populationCenter.borders.tiles.Add( new Location( populationCenter.centerTile.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationCenter.centerTile.col + tileCol ) ) );
+					populationCenter.borders.tiles.Add( new Location( populationCenter.centerLocation.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationCenter.centerLocation.col + tileCol ) ) );
 				}
 			}
-			populationCenter.borders.coordinates = TraceBorders( tileMatrix, populationCenter.centerTile );
+			populationCenter.borders.coordinates = TraceBorders( tileMatrix, populationCenter.centerLocation );
 
 			// if the population center has outskirts calculate them now:
 			if ( (int)populationCenter.size >= (int)PopulationCenterSize.medium ) {
@@ -627,11 +656,11 @@ namespace Civilization {
 					int divider = Mathf.FloorToInt( tileMatrix[ tileRow ][ 0 ] / 2 );
 					for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {
 						if ( ( tileRow < outskirtsRadius / 2 ) || ( tileRow >= tileMatrix.Count - outskirtsRadius / 2 ) || tileCol < -divider + outskirtsRadius || tileCol > divider - outskirtsRadius ) {
-							populationCenter.outskirts.tiles.Add( new Location( populationCenter.centerTile.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationCenter.centerTile.col + tileCol ) ) );
+							populationCenter.outskirts.tiles.Add( new Location( populationCenter.centerLocation.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationCenter.centerLocation.col + tileCol ) ) );
 						}
 					}
 				}
-				populationCenter.outskirts.coordinates = TraceBorders( tileMatrix, populationCenter.centerTile );
+				populationCenter.outskirts.coordinates = TraceBorders( tileMatrix, populationCenter.centerLocation );
 
 				// if there are villages calculate their surrounding border tiles as well:
 				List<string> populationGroupKeys = new List<string>( populationCenter.populationGroups.Keys );
