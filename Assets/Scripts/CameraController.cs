@@ -27,8 +27,6 @@ namespace Civilization {
 		private float cameraPanEase;
 		private float cameraDistanceMin;
 		private float cameraDistanceMax;
-		private float cameraDistanceUsed;
-		private float cameraDistanceIgnoreThreshold = 0.50f;
 		private float cameraSmoothTime = 0.02f;
 		private float cameraZoomEase;
 		private float cameraZoomIgnoreThreshold = 0.01f;
@@ -38,18 +36,21 @@ namespace Civilization {
 		private float lastMouseX;
 		private float lastMouseY;
 
-		/* Keyboard controlls */
+		/* Keyboard & Mouse controlls */
 		public static KeyCode keyScrollUp = KeyCode.W;
 		public static KeyCode keyScrollDown = KeyCode.S;
 		public static KeyCode keyScrollLeft = KeyCode.A;
 		public static KeyCode keyScrollRight = KeyCode.D;
 		public static KeyCode keyCameraMoveBoost = KeyCode.LeftShift;
+		public static bool reverseScrollZoom = false;
 
+		/* System function. */
 		void Awake() {
 			// make the game camera a singleton:
 			instance = this;
 		}
 
+		/* System function. */
 		void Start() {
 			scrollLimits.left = mouseInBoundary;
 			scrollLimits.right = mouseInBoundary;
@@ -59,9 +60,8 @@ namespace Civilization {
 			// calculate distances and ease factors based on tile size:
 			cameraDistanceMin = GameManager.instance.tileSide * 3.5f;
 			cameraDistanceMax = GameManager.instance.tileSide * 8.5f;
-			cameraDistanceUsed = cameraDistanceMin * 1.1f;
 			cameraPanEase = GameManager.instance.tileSide / 10f;
-			cameraZoomEase = GameManager.instance.tileSide * 2f;
+			cameraZoomEase = GameManager.instance.tileSide * 2.5f;
 
 			// calculate camera move and orbit speeds - we want to move x tiles per second in either direction where x is our 'cameraMoveTilesPerSecond' property:
 			cameraMoveSpeed = cameraMoveTilesPerSecond * GameManager.instance.tileBisector;
@@ -72,17 +72,45 @@ namespace Civilization {
 			mainCamera.transform.rotation = Quaternion.Euler( -cameraTiltAngleMax, 180f, 0 );
 		}
 
+		/* System function. */
 		void LateUpdate() {
-			bool zoomPerformed = CameraZoom();
-			Vector2 movement = CameraScroll();
-			movement += CameraPan();
+			// use a combination of camera scroll and pan in case both are active at the same time:
+			Vector3 desiredMovement = CameraScroll() + CameraPan() + CameraZoom();
 
-			MoveCamera( movement, zoomPerformed );
+			MoveCamera( desiredMovement, Time.smoothDeltaTime );
+		}
+
+		/* Used to focus the camera at specific tile and optionally restrict the scrolling boundaries within new limits. */
+		public void FocusAtTile( GameTile tile ) {
+			RaycastHit hit;
+
+			// make sure we have an intersection point with the terrain (i.e. the tiles):
+			if ( Physics.Raycast( instance.transform.position, mainCamera.transform.forward, out hit, cameraDistanceMax * 2, terrainOnly ) ) {
+				Debug.DrawRay( hit.point, instance.transform.position, Color.red, Mathf.Infinity );
+
+				Vector3 tileSurfaceProjection = tile.transform.position;
+				tileSurfaceProjection.z += GameManager.instance.tileHeight;
+				Vector3 alignedCameraPosition = hit.point;
+				alignedCameraPosition.y += tileSurfaceProjection.y - hit.point.y;
+
+				Debug.DrawLine( hit.point, tileSurfaceProjection, Color.blue, Mathf.Infinity );
+				Debug.DrawLine( hit.point, alignedCameraPosition, Color.green, Mathf.Infinity );
+
+				Vector3 requiredMovement = new Vector3( 0, 0, 0 );
+
+				int angleSign = Vector3.Cross( tileSurfaceProjection, alignedCameraPosition ).z < 0 ? -1 : 1;
+				requiredMovement.x = angleSign * Vector3.Angle( tileSurfaceProjection, alignedCameraPosition );
+				requiredMovement.y = tileSurfaceProjection.y - hit.point.y;
+
+				Debug.Log( "FocusAtTile: " + requiredMovement );
+
+				MoveCamera( requiredMovement, 1f );
+			}
 		}
 
 		/* Handles all camera scrolling including the keyboard controlls and edge scrolling. */
-		private Vector2 CameraScroll() {
-			Vector2 scrollMovement = new Vector2( 0, 0 );
+		private Vector3 CameraScroll() {
+			Vector3 scrollMovement = new Vector3( 0, 0, 0 );
 
 			if ( IsCameraScrollButtonPressed() || IsMouseWithinScrollBoundaries() ) {
 				bool isBoostActive = false;
@@ -109,8 +137,8 @@ namespace Civilization {
 		}
 
 		/* Handles the camera panning using the mouse right button. */
-		private Vector2 CameraPan() {
-			Vector2 panMovement = new Vector2( 0, 0 );
+		private Vector3 CameraPan() {
+			Vector3 panMovement = new Vector3( 0, 0, 0 );
 
 			if ( Input.GetMouseButton( 1 ) ) {
 				if ( Input.mousePosition.x != lastMouseX || Input.mousePosition.y != lastMouseY ) {
@@ -127,29 +155,22 @@ namespace Civilization {
 		}
 
 		/* Handles the camera zoom using the scroll wheel. */
-		private bool CameraZoom() {
-			bool zoomPerformed = false;
-			float scrollWheelValue = Input.GetAxis( "Mouse ScrollWheel" ) * cameraZoomEase;// * Time.deltaTime;
+		private Vector3 CameraZoom() {
+			Vector3 zoomMovement = new Vector3( 0, 0, 0 );
+			float scrollWheelValue = Input.GetAxis( "Mouse ScrollWheel" ) * cameraZoomEase;
 
 			if ( scrollWheelValue != 0f && ( scrollWheelValue < -cameraZoomIgnoreThreshold || scrollWheelValue > cameraZoomIgnoreThreshold ) ) {
-				cameraDistanceUsed = cameraDistanceUsed - scrollWheelValue;
-				if ( cameraDistanceUsed < cameraDistanceMin ) {
-					cameraDistanceUsed = cameraDistanceMin;
-				} else if ( cameraDistanceUsed > cameraDistanceMax ) {
-					cameraDistanceUsed = cameraDistanceMax;
-				}
-
-				zoomPerformed = true;
+				zoomMovement.z = scrollWheelValue * ( ( reverseScrollZoom ) ? 1 : -1 );
 			}
 
-			return zoomPerformed;
+			return zoomMovement;
 		}
 
 		/* Handles actual camera movements up / down and around the world base. */
-		private void MoveCamera( Vector2 movement, bool zoomPerformed ) {
+		private void MoveCamera( Vector3 movement, float smoothFactor ) {
 			// make sure we don do unnecessary calculations:
-			if ( movement.x != 0f || movement.y != 0f || zoomPerformed ) {
-				Vector3 verticalTranslation = new Vector3( 0, movement.y * Time.smoothDeltaTime, 0 );
+			if ( movement.x != 0f || movement.y != 0f || movement.z != 0f ) {
+				Vector3 verticalTranslation = new Vector3( 0, movement.y * smoothFactor, 0 );
 				Vector3 worldTranslation = instance.transform.TransformPoint( verticalTranslation );
 
 				// make sure to check the up and down limits:
@@ -161,37 +182,39 @@ namespace Civilization {
 				}
 
 				// the vertical movement adjust both vetical postion and distance:
-				verticalTranslation = new Vector3( 0, movement.y * Time.smoothDeltaTime + limitDifference, 0 );
+				verticalTranslation = new Vector3( 0, movement.y * smoothFactor + limitDifference, 0 );
 				instance.transform.Translate( verticalTranslation );
 
 				// the horizontal rotation has no limits (i.e. orbit in a circle):
-				instance.transform.RotateAround( gameTilesContainer.transform.position, Vector3.up, movement.x * Time.smoothDeltaTime );
+				instance.transform.RotateAround( gameTilesContainer.transform.position, Vector3.up, movement.x * smoothFactor );
 
 				// now calculate the distance adjustments:
 				RaycastHit hit;
 				Vector3 cameraWorldDirection = -( gameTilesContainer.transform.position + instance.transform.position );
 
-				// make sure we have an intersection point with the terrain (i.e. the tiles):
-				if ( Physics.Raycast( instance.transform.position, cameraWorldDirection, out hit, Mathf.Infinity, terrainOnly ) ) {
-				
+				// make sure we have an intersection point with the terrain (i.e. the tiles) and the zoom is large enough to make sense showing:
+				if ( Physics.Raycast( instance.transform.position, cameraWorldDirection, out hit, cameraDistanceMax * 2, terrainOnly ) && Mathf.Abs( movement.z ) >= 0.5f ) {
 					float currentDistance = Vector3.Distance( instance.transform.position, hit.point );
-					float distanceDifference = currentDistance - cameraDistanceUsed;
+					float targetDistance = currentDistance + movement.z;
+					Vector3 velocity = Vector3.zero;
 
-					if ( distanceDifference < -cameraDistanceIgnoreThreshold || distanceDifference > cameraDistanceIgnoreThreshold ) {
-						Vector3 velocity = Vector3.zero;
+					if ( targetDistance < cameraDistanceMin ) {
+						targetDistance = cameraDistanceMin;
+					} else if ( targetDistance > cameraDistanceMax ) {
+						targetDistance = cameraDistanceMax;
+					}
 
-						// apply smooth distance transition:
-						Vector3 targetPosition = ( instance.transform.position - hit.point ).normalized * cameraDistanceUsed + hit.point;
-						instance.transform.position = Vector3.SmoothDamp( instance.transform.position, targetPosition, ref velocity, cameraSmoothTime, Mathf.Infinity, Time.smoothDeltaTime );
+					// apply smooth distance transition:
+					Vector3 targetPosition = ( instance.transform.position - hit.point ).normalized * targetDistance + hit.point;
+					instance.transform.position = Vector3.SmoothDamp( instance.transform.position, targetPosition, ref velocity, cameraSmoothTime, Mathf.Infinity, smoothFactor );
 
-						// adjust the camera tilt angle:
-						float targetTiltAngle = 360f - ( 1 - ( cameraDistanceUsed - cameraDistanceMin ) / ( cameraDistanceMax - cameraDistanceMin ) ) * cameraTiltAngleMax;
-						float tiltDifference = targetTiltAngle - mainCamera.transform.rotation.eulerAngles.x;
+					// adjust the camera tilt angle:
+					float targetTiltAngle = 360f - ( 1 - ( targetDistance - cameraDistanceMin ) / ( cameraDistanceMax - cameraDistanceMin ) ) * cameraTiltAngleMax;
+					float tiltDifference = targetTiltAngle - mainCamera.transform.rotation.eulerAngles.x;
 
-						// avoid unnecessary rotation calls:
-						if ( tiltDifference != 0 && tiltDifference != 360f ) {
-							mainCamera.transform.Rotate( new Vector3( tiltDifference, 0, 0 ) );
-						}
+					// avoid unnecessary rotation calls:
+					if ( tiltDifference != 0 && tiltDifference != 360f ) {
+						mainCamera.transform.Rotate( new Vector3( tiltDifference, 0, 0 ) );
 					}
 				}
 			}

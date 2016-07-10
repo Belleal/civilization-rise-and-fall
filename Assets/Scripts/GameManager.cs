@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.EventSystems;
 
 namespace Civilization {
 	
@@ -424,6 +425,14 @@ namespace Civilization {
 			shield.transform.localPosition = Vector3.zero;
 			shield.transform.Rotate( new Vector3( 90, 180, 0 ) );
 			shield.transform.Translate( new Vector3( 0, -tileDelta, -120 ), Space.Self );
+
+			EventTrigger shieldTrigger = shield.GetComponent<EventTrigger>();
+			EventTrigger.Entry entry = new EventTrigger.Entry();
+			entry.eventID = EventTriggerType.PointerClick;
+			entry.callback.AddListener( ( eventData ) => {
+				CameraController.instance.FocusAtTile( centerTile );
+			} );
+			shieldTrigger.triggers.Add( entry );
 
 			// draw the population center borders:
 			DrawTileBorders( centerTile, populationCenter.borders );
