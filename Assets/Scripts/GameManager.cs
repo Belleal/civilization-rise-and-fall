@@ -8,7 +8,7 @@ namespace Civilization {
 	
 	#region Enumerations
 
-	public enum PopulationCenterSize {
+	public enum SettlementSize {
 		tiny = 1,
 		small = 2,
 		medium = 3,
@@ -97,7 +97,7 @@ namespace Civilization {
 		public int maxCapacity;
 	};
 
-	public class PopulationCenterArea {
+	public class SettlementArea {
 		public List<Vector3> coordinates { get; set; }
 		public List<Location> tiles { get; set; }
 		public List<GameObject> visuals { get; set; }
@@ -153,13 +153,13 @@ namespace Civilization {
 		public int establishedOn { get; private set; }
 		public PopulationGroupType type { get; set; }
 		public Location location { get; set; }
-		public PopulationCenterArea borderArea { get; set; }
+		public SettlementArea borderArea { get; set; }
 		public Dictionary<string,Population> population { get; set; }
 		public Dictionary<Location,GameObject> visuals { get; set; }
 
 		private PopulationGroup() {
 			uid = GameManager.instance.GenerateUID();
-			borderArea = new PopulationCenterArea();
+			borderArea = new SettlementArea();
 			population = new Dictionary<string,Population>();
 			visuals = new Dictionary<Location, GameObject>();
 			establishedOn = 0;
@@ -170,14 +170,14 @@ namespace Civilization {
 		}
 	};
 
-	public class PopulationCenter {
+	public class Settlement {
 		public string uid { get; private set; }
 		public string name { get; set; }
-		public PopulationCenterSize size { get; set; }
+		public SettlementSize size { get; set; }
 		public int populationMargin { get; set; }
 		public Location centerLocation { get; set; }
-		public PopulationCenterArea borders { get; set; }
-		public PopulationCenterArea outskirts { get; set; }
+		public SettlementArea borders { get; set; }
+		public SettlementArea outskirts { get; set; }
 		public Dictionary<string,PopulationGroup> populationGroups { get; set; }
 		public Dictionary<string,Population> homeless { get; set; }
 		public Storrage tools { get; set; }
@@ -185,10 +185,10 @@ namespace Civilization {
 		public Storrage goods { get; set; }
 		public Storrage materials { get; set; }
 
-		public PopulationCenter() {
+		public Settlement() {
 			uid = GameManager.instance.GenerateUID();
-			borders = new PopulationCenterArea();
-			outskirts = new PopulationCenterArea();
+			borders = new SettlementArea();
+			outskirts = new SettlementArea();
 			populationGroups = new Dictionary<string,PopulationGroup>();
 			homeless = new Dictionary<string,Population>();
 			tools = new Storrage();
@@ -201,10 +201,10 @@ namespace Civilization {
 	public class GameData {
 		public GameTile[,] worldTiles { get; set; }
 		public int turn { get; set; }
-		public Dictionary<string,PopulationCenter> populationCenters { get; set; }
+		public Dictionary<string,Settlement> settlements { get; set; }
 
 		public GameData() {
-			populationCenters = new Dictionary<string,PopulationCenter>();
+			settlements = new Dictionary<string,Settlement>();
 		}
 	};
 
@@ -221,7 +221,7 @@ namespace Civilization {
 		public GameTile tilePrefab;
 		public Material[] tileBiomes = new Material[20];
 		public GameObject tileBorders;
-		public Canvas populationCenterShield;
+		public Canvas settlementShield;
 
 		/* Would and tile measurments */
 		public int worldHeightInTiles { get; private set; }
@@ -381,19 +381,17 @@ namespace Civilization {
 
 			#region TEMPORARY CODE: This is used to initialize and test various game objects
 
-			PopulationCenter newPopulationCenter = CreatePopulationCenter( "Babylon", new Location( 24, 1 ) );
-			//newPopulationCenter.size = PopulationCenterSize.medium;
+			Settlement newSettlement = CreateSettlement( "Babylon", new Location( 24, 1 ) );
 
 
-
-			DeterminePopulationCenterAreas( ref newPopulationCenter );
-			currentGame.populationCenters.Add( newPopulationCenter.uid, newPopulationCenter );
+			DetermineSettlementAreas( ref newSettlement );
+			currentGame.settlements.Add( newSettlement.uid, newSettlement );
 
 			#endregion
 
 			// draw game objects:
-			foreach ( KeyValuePair<string,PopulationCenter> populationCenter in currentGame.populationCenters ) {
-				DrawPopulationCenter( populationCenter.Value );
+			foreach ( KeyValuePair<string,Settlement> settlement in currentGame.settlements ) {
+				DrawSettlement( settlement.Value );
 			}
 		}
 
@@ -414,34 +412,39 @@ namespace Civilization {
 			}
 		}
 
-		/* Used to (re)draw a population center visuals. */
-		private void DrawPopulationCenter( PopulationCenter populationCenter ) {
-			GameTile centerTile = GetTileByLocation( populationCenter.centerLocation );
+		/* Used to (re)draw a settlement visuals. */
+		private void DrawSettlement( Settlement settlement ) {
+			GameTile centerTile = GetTileByLocation( settlement.centerLocation );
 
-			// draw the shield:
-			Canvas shield = Instantiate<Canvas>( populationCenterShield );
+			// draw the settlement shield:
+			Canvas shield = Instantiate<Canvas>( settlementShield );
 			shield.transform.SetParent( centerTile.transform, false );
 			shield.transform.rotation = centerTile.transform.rotation;
 			shield.transform.localPosition = Vector3.zero;
 			shield.transform.Rotate( new Vector3( 90, 180, 0 ) );
 			shield.transform.Translate( new Vector3( 0, -tileDelta, -120 ), Space.Self );
 
+			// attach the settlement shield click events:
 			EventTrigger shieldTrigger = shield.GetComponent<EventTrigger>();
-			EventTrigger.Entry entry = new EventTrigger.Entry();
-			entry.eventID = EventTriggerType.PointerClick;
-			entry.callback.AddListener( ( eventData ) => {
+			EventTrigger.Entry clickEvent = new EventTrigger.Entry();
+			clickEvent.eventID = EventTriggerType.PointerClick;
+			clickEvent.callback.AddListener( ( eventData ) => {
 				CameraController.instance.FocusAtTile( centerTile );
 			} );
-			shieldTrigger.triggers.Add( entry );
+			clickEvent.callback.AddListener( ( eventData ) => {
+				UIController.instance.OpenSettlementMenu( settlement );
+			} );
+			shieldTrigger.triggers.Add( clickEvent );
 
-			// draw the population center borders:
-			DrawTileBorders( centerTile, populationCenter.borders );
-			if ( (int)populationCenter.size >= (int)PopulationCenterSize.medium ) {
-				//DrawTileBorders( centerTile, populationCenter.outskirts );
+
+			// draw the settlement borders:
+			DrawTileBorders( centerTile, settlement.borders );
+			if ( (int)settlement.size >= (int)SettlementSize.medium ) {
+				//DrawTileBorders( centerTile, settlement.outskirts );
 			}
 
 			// draw the housing:
-			foreach ( KeyValuePair<string,PopulationGroup> populationGroup in populationCenter.populationGroups ) {
+			foreach ( KeyValuePair<string,PopulationGroup> populationGroup in settlement.populationGroups ) {
 				// TODO: draw districts and villages
 				GameTile groupTile = GetTileByLocation( populationGroup.Value.location );
 				List<Location> freeLocations = groupTile.GetAvailablePropLocations();
@@ -461,7 +464,7 @@ namespace Civilization {
 		}
 
 		/* Used to (re)draw a set of tile borders. If border visuals already exist they will be destroyed first. */
-		private void DrawTileBorders( GameTile centerTile, PopulationCenterArea borders ) {
+		private void DrawTileBorders( GameTile centerTile, SettlementArea borders ) {
 			// clean up old visuals (if any):
 			if ( borders.visuals != null ) {
 				for ( int idx = 0 ; idx < borders.visuals.Count ; idx++ ) {
@@ -487,13 +490,13 @@ namespace Civilization {
 		 * Game Logic functions
 		 */
 
-		/* Used to create and initialize a new population center. */
-		private PopulationCenter CreatePopulationCenter( string name, Location center ) {
-			PopulationCenter populationCenter = new PopulationCenter();
+		/* Used to create and initialize a new settlement. */
+		private Settlement CreateSettlement( string name, Location center ) {
+			Settlement settlement = new Settlement();
 
-			populationCenter.name = name;
-			populationCenter.centerLocation = center;
-			populationCenter.size = PopulationCenterSize.tiny;
+			settlement.name = name;
+			settlement.centerLocation = center;
+			settlement.size = SettlementSize.tiny;
 
 			PopulationGroup centralDistrict = new PopulationGroup( currentGame.turn );
 			centralDistrict.name = name;
@@ -502,23 +505,23 @@ namespace Civilization {
 
 			Population population = new Population( currentGame.turn );
 			centralDistrict.population.Add( population.uid, population );
-			populationCenter.populationGroups.Add( centralDistrict.uid, centralDistrict );
+			settlement.populationGroups.Add( centralDistrict.uid, centralDistrict );
 
-			return populationCenter;
+			return settlement;
 		}
 
-		/* Used to determine and update (if allowed) the size of the population center. */
-		private void DeterminePopulationCenterSize( ref PopulationCenter populationCenter ) {
-			PopulationCenterSize newSize = populationCenter.size;
+		/* Used to determine and update (if allowed) the size of the settlement. */
+		private void DetermineSettlementSize( ref Settlement settlement ) {
+			SettlementSize newSize = settlement.size;
 			int totalPopulatedTiles = 0;
 			int twoUnitPopulatedTiles = 0;
 			int threeUnitPopulatedTiles = 0;
 
 			/**
-			 * Game Rule: Population Center Sizes
-			 * Only districts are considered when determining the size of a population center
+			 * Game Rule: Settlement Sizes
+			 * Only districts are considered when determining the size of a settlement
 			 */
-			foreach ( KeyValuePair<string,PopulationGroup> populationGroup in populationCenter.populationGroups ) {
+			foreach ( KeyValuePair<string,PopulationGroup> populationGroup in settlement.populationGroups ) {
 				// count the different population density in all relevant tiles:
 				if ( populationGroup.Value.type == PopulationGroupType.district ) {
 					if ( populationGroup.Value.population.Count > 0 ) {
@@ -534,25 +537,25 @@ namespace Civilization {
 			}
 
 			/**
-			 * Game Rule: Population Center Sizes
-			 * The size of population centers is determined by the number of the various population density in all its tiles
+			 * Game Rule: Settlement Sizes
+			 * The size of settlements is determined by the number of the various population density in all its tiles
 			 * Only when all conditions are met the population size can increase
 			 */
 			// TODO: Add all remaining sizes here
 			if ( totalPopulatedTiles >= 13 && twoUnitPopulatedTiles >= 5 && threeUnitPopulatedTiles >= 1 ) {
-				newSize = PopulationCenterSize.large;
+				newSize = SettlementSize.large;
 			} else if ( totalPopulatedTiles >= 8 && twoUnitPopulatedTiles >= 3 ) {
-				newSize = PopulationCenterSize.medium;
+				newSize = SettlementSize.medium;
 			} else if ( totalPopulatedTiles >= 3 && twoUnitPopulatedTiles >= 1 ) {
-				newSize = PopulationCenterSize.small;
+				newSize = SettlementSize.small;
 			}
 
 			/**
-			 * Game Rule: Population Center Sizes
-			 * The size of population centers cannot decrease even if the population dwindles
+			 * Game Rule: Settlement Sizes
+			 * The size of settlements cannot decrease even if the population dwindles
 			 */
-			if ( (int)newSize > (int)populationCenter.size ) {
-				populationCenter.size = newSize;
+			if ( (int)newSize > (int)settlement.size ) {
+				settlement.size = newSize;
 			}
 		}
 
@@ -640,45 +643,45 @@ namespace Civilization {
 			return border;
 		}
 
-		/* Used to determine and update the population center areas - borders and outskirts. */
-		private void DeterminePopulationCenterAreas( ref PopulationCenter populationCenter ) {
+		/* Used to determine and update the settlement areas - borders and outskirts. */
+		private void DetermineSettlementAreas( ref Settlement settlement ) {
 			// generate a tile matrix:
-			List<int[]> tileMatrix = GenerateTileMatrix( populationCenter.size, GetTileByLocation( populationCenter.centerLocation ).isUpwardTile );
+			List<int[]> tileMatrix = GenerateTileMatrix( settlement.size, GetTileByLocation( settlement.centerLocation ).isUpwardTile );
 
 			// based on the matrix determine the surrounding tiles:
-			populationCenter.borders.tiles = new List<Location>();
+			settlement.borders.tiles = new List<Location>();
 			for ( int tileRow = 0 ; tileRow < tileMatrix.Count ; tileRow++ ) {
 				int divider = Mathf.FloorToInt( tileMatrix[ tileRow ][ 0 ] / 2 );
 				for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {
-					populationCenter.borders.tiles.Add( new Location( populationCenter.centerLocation.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationCenter.centerLocation.col + tileCol ) ) );
+					settlement.borders.tiles.Add( new Location( settlement.centerLocation.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( settlement.centerLocation.col + tileCol ) ) );
 				}
 			}
-			populationCenter.borders.coordinates = TraceBorders( tileMatrix, populationCenter.centerLocation );
+			settlement.borders.coordinates = TraceBorders( tileMatrix, settlement.centerLocation );
 
-			// if the population center has outskirts calculate them now:
-			if ( (int)populationCenter.size >= (int)PopulationCenterSize.medium ) {
-				int outskirtsRadius = ExpandTileMatrix( ref tileMatrix, populationCenter.size );
+			// if the settlement has outskirts calculate them now:
+			if ( (int)settlement.size >= (int)SettlementSize.medium ) {
+				int outskirtsRadius = ExpandTileMatrix( ref tileMatrix, settlement.size );
 
 				// determine the outskirts tiles:
-				populationCenter.outskirts.tiles = new List<Location>();
+				settlement.outskirts.tiles = new List<Location>();
 				for ( int tileRow = 0 ; tileRow < tileMatrix.Count ; tileRow++ ) {
 					int divider = Mathf.FloorToInt( tileMatrix[ tileRow ][ 0 ] / 2 );
 					for ( int tileCol = -divider ; tileCol <= divider ; tileCol++ ) {
 						if ( ( tileRow < outskirtsRadius / 2 ) || ( tileRow >= tileMatrix.Count - outskirtsRadius / 2 ) || tileCol < -divider + outskirtsRadius || tileCol > divider - outskirtsRadius ) {
-							populationCenter.outskirts.tiles.Add( new Location( populationCenter.centerLocation.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( populationCenter.centerLocation.col + tileCol ) ) );
+							settlement.outskirts.tiles.Add( new Location( settlement.centerLocation.row + tileMatrix[ tileRow ][ 1 ], EnsureColWithinBoundary( settlement.centerLocation.col + tileCol ) ) );
 						}
 					}
 				}
-				populationCenter.outskirts.coordinates = TraceBorders( tileMatrix, populationCenter.centerLocation );
+				settlement.outskirts.coordinates = TraceBorders( tileMatrix, settlement.centerLocation );
 
 				// if there are villages calculate their surrounding border tiles as well:
-				List<string> populationGroupKeys = new List<string>( populationCenter.populationGroups.Keys );
+				List<string> populationGroupKeys = new List<string>( settlement.populationGroups.Keys );
 				foreach ( string populationGroupUID in populationGroupKeys ) {
 					PopulationGroup populationGroup;
-					if ( populationCenter.populationGroups.TryGetValue( populationGroupUID, out populationGroup ) ) {
+					if ( settlement.populationGroups.TryGetValue( populationGroupUID, out populationGroup ) ) {
 						if ( populationGroup.type == PopulationGroupType.village ) {
-							// basically villages are like tiny population centers:
-							List<int[]> villageTileMatrix = GenerateTileMatrix( PopulationCenterSize.tiny, GetTileByLocation( populationGroup.location ).isUpwardTile );
+							// basically villages are like tiny settlements:
+							List<int[]> villageTileMatrix = GenerateTileMatrix( SettlementSize.tiny, GetTileByLocation( populationGroup.location ).isUpwardTile );
 
 							populationGroup.borderArea.tiles = new List<Location>();
 							for ( int tileRow = 0 ; tileRow < villageTileMatrix.Count ; tileRow++ ) {
@@ -688,16 +691,16 @@ namespace Civilization {
 								}
 							}
 
-							populationCenter.populationGroups[ populationGroupUID ] = populationGroup;
+							settlement.populationGroups[ populationGroupUID ] = populationGroup;
 						}
 					}
 				}
 			}
 		}
 
-		/* Used to determine and update the housing availability on all tiles inside the population center areas. */
-		private void DeterminePopulationCenterHousing( ref PopulationCenter populationCenter ) {
-			foreach ( KeyValuePair<string,PopulationGroup> populationGroup in populationCenter.populationGroups ) {
+		/* Used to determine and update the housing availability on all tiles inside the settlement areas. */
+		private void DetermineSettlementHousing( ref Settlement settlement ) {
+			foreach ( KeyValuePair<string,PopulationGroup> populationGroup in settlement.populationGroups ) {
 				/**
 	   			 * Game Rule: Population Group Housing
 	   			 * The central tiles of the population group have limit on how many populations they can house
@@ -746,8 +749,8 @@ namespace Civilization {
 			return properCol;
 		}
 
-		/* Used to generate tile matrix around a certain population center size and its center tile direction. */
-		public List<int[]> GenerateTileMatrix( PopulationCenterSize size, bool isUpwardTile ) {
+		/* Used to generate tile matrix around a certain settlement size and its center tile direction. */
+		public List<int[]> GenerateTileMatrix( SettlementSize size, bool isUpwardTile ) {
 			List<int[]> tileMatrix = new List<int[]>();
 
 			/**
@@ -795,19 +798,19 @@ namespace Civilization {
 			return tileMatrix;
 		}
 
-		/* Used to expand a tile matrix to include the outskirts of a population center. It will return the outskirts radius (0 if there are no outskirts). */
-		public int ExpandTileMatrix( ref List<int[]> tileMatrix, PopulationCenterSize size ) {
+		/* Used to expand a tile matrix to include the outskirts of a settlement. It will return the outskirts radius (0 if there are no outskirts). */
+		public int ExpandTileMatrix( ref List<int[]> tileMatrix, SettlementSize size ) {
 			int outskirtsRadius = 0;
 
 			/**
 			 * Game Rule: Expanded Tile Matrix
-			 * The expanded tile matrix defines the outskirts area of a population center based on its size
-			 * Population center below the size of 'medium' does not have outskirts so if such a size is possed as param
+			 * The expanded tile matrix defines the outskirts area of a settlement based on its size
+			 * Settlement below the size of 'medium' does not have outskirts so if such a size is possed as param
 			 *    this function will not modify the tile matrix at all
-			 * The outskirts radius increases with the size of the population center - it is 2 times the size identifier as defined
-			 *    in the enum 'PopulationCenterSize'
+			 * The outskirts radius increases with the size of the settlement - it is 2 times the size identifier as defined
+			 *    in the enum 'SettlementSize'
 			 */
-			if ( (int)size >= (int)PopulationCenterSize.medium ) {
+			if ( (int)size >= (int)SettlementSize.medium ) {
 				outskirtsRadius = (int)size * 2;
 				for ( int idx = 0 ; idx < outskirtsRadius / 2 ; idx++ ) {
 					tileMatrix.Insert( 0, new int[] { tileMatrix[ 0 ][ 0 ] - 2, tileMatrix[ 0 ][ 1 ] - 1 } );
